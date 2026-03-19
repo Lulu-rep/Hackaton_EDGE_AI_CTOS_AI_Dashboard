@@ -176,13 +176,14 @@ class ToFApp(tk.Tk):
         self._serial      = None
         self._thread      = None
         self._running     = False
+        self._graph_w     = 0
         self._queue       = queue.Queue()
         self._parser      = FrameParser("json")
         self._fps_buf     = deque(maxlen=30)
         self._last_frame  = time.time()
         self._frame_count = 0
         self._history_ai  = deque(maxlen=50)   # historique résultat IA
-        self._dist_history= deque(maxlen=200)  # min distance pour graphe
+        self._conf_history= deque(maxlen=20)   # historique (timestamp, confidence)
 
         # Données courantes
         self._matrix      = [0] * N_PIXELS
@@ -407,12 +408,6 @@ class ToFApp(tk.Tk):
         tk.Label(leg_f, text=f"{DIST_MAX_MM} mm", bg=self.BG, fg=self.TEXT_DIM,
                  font=("Courier New", 8)).pack(side="left")
 
-        # Coordonnées X
-        coord_x = tk.Frame(mat_outer, bg=self.BG)
-        coord_x.pack(fill="x")
-        for c in range(MATRIX_SIZE):
-            tk.Label(coord_x, text=str(c), bg=self.BG, fg=self.TEXT_DIM,
-                     font=("Courier New", 7), width=int(CELL_PX/7)).pack(side="left")
 
         # ── Graphe historique ──────────────────
         graph_frame = tk.Frame(main, bg=self.PANEL, pady=8, padx=10)
@@ -421,12 +416,13 @@ class ToFApp(tk.Tk):
         graph_frame.columnconfigure(0, weight=1)
         graph_frame.rowconfigure(1, weight=1)
 
-        tk.Label(graph_frame, text="HISTORIQUE — DISTANCE MINIMALE (mm)",
+        tk.Label(graph_frame, text="HISTORIQUE — CONFIANCE IA (%)",
                  bg=self.PANEL, fg=self.TEXT_DIM, font=("Courier New", 9)).grid(
             row=0, column=0, sticky="w", pady=(0,4))
 
         self._graph = tk.Canvas(graph_frame, bg=self.BG, highlightthickness=0, height=100)
         self._graph.grid(row=1, column=0, sticky="nsew")
+        self._graph.bind("<Configure>", lambda e: setattr(self, "_graph_w", e.width))
 
         # Pré-dessin matrice vide
         self._cell_ids    = []
@@ -509,40 +505,54 @@ class ToFApp(tk.Tk):
     # ── Graphe ───────────────────────────────
     def _redraw_graph(self):
         self._graph.delete("all")
-        w = self._graph.winfo_width()
+        w = self._graph_w if self._graph_w > 10 else self._graph.winfo_width()
         h = self._graph.winfo_height()
-        if w < 10 or h < 10 or len(self._dist_history) < 2:
+        if w < 10 or h < 10 or len(self._conf_history) < 2:
             return
-        data  = list(self._dist_history)
-        dmax  = max(data) or 1
-        pts   = []
-        for i, v in enumerate(data):
-            x = int(i / (len(data)-1) * (w-2)) + 1
-            y = h - 2 - int(v / dmax * (h-4))
+
+        data = list(self._conf_history)   # liste de (timestamp, confidence)
+        t0   = data[0][0]
+        t1   = data[-1][0]
+        span = t1 - t0 or 1.0
+
+        # X proportionnel au temps, Y = confiance 0-100%
+        pts = []
+        for ts, conf in data:
+            x = 1 + int((ts - t0) / span * (w - 3))
+            y = h - 2 - int(conf * (h - 4))
             pts.append((x, y))
 
-        # ligne
-        for i in range(len(pts)-1):
-            t = i / max(len(pts)-1, 1)
-            r = int(88 + t * (248 - 88))
+        # Segments colorés ancien->récent (bleu->orange)
+        for i in range(len(pts) - 1):
+            t = i / max(len(pts) - 1, 1)
+            r = int(88  + t * (248 - 88))
             g = int(166 - t * (166 - 81))
             b = int(255 - t * (255 - 73))
             self._graph.create_line(pts[i][0], pts[i][1], pts[i+1][0], pts[i+1][1],
                                      fill=f"#{r:02X}{g:02X}{b:02X}", width=2)
 
-        # axes
-        self._graph.create_line(1, 0, 1, h-1, fill=self.BORDER, width=1)
-        self._graph.create_line(0, h-2, w, h-2, fill=self.BORDER, width=1)
-        self._graph.create_text(w-2, 2, text=f"{dmax} mm", anchor="ne",
+        # Axes
+        self._graph.create_line(1, 0, 1, h - 1, fill=self.BORDER, width=1)
+        self._graph.create_line(0, h - 2, w, h - 2, fill=self.BORDER, width=1)
+
+        # Labels
+        self._graph.create_text(4, 3,        text="100%", anchor="nw",
+                                 fill=self.TEXT_DIM, font=("Courier New", 7))
+        self._graph.create_text(4, h - 14,   text="0%",   anchor="nw",
+                                 fill=self.TEXT_DIM, font=("Courier New", 7))
+        self._graph.create_text(w - 2, h - 14, text=f"{span:.1f}s", anchor="ne",
                                  fill=self.TEXT_DIM, font=("Courier New", 7))
 
-        # marqueurs IA
-        for i, val in enumerate(self._history_ai):
-            if i >= len(pts):
-                break
-            x, y = pts[-(len(self._history_ai)-i)]
+        # Marqueurs IA
+        ai_data = list(self._history_ai)
+        offset  = len(data) - len(ai_data)
+        for i, val in enumerate(ai_data):
+            idx = offset + i
+            if idx < 0 or idx >= len(pts):
+                continue
+            x, y  = pts[idx]
             color = self.GREEN if val else self.RED
-            self._graph.create_oval(x-3, y-3, x+3, y+3, fill=color, outline="")
+            self._graph.create_oval(x - 3, y - 3, x + 3, y + 3, fill=color, outline="")
 
     # ── Mise à jour UI depuis une trame ──────
     def _apply_frame(self, frame: dict):
@@ -560,7 +570,7 @@ class ToFApp(tk.Tk):
         # historiques
         valid = [d for d in self._matrix if d > 0]
         dmin  = min(valid) if valid else 0
-        self._dist_history.append(dmin)
+        self._conf_history.append((now, self._confidence))
         self._history_ai.append(self._ai_result)
 
         # ── Matrice ──
