@@ -687,6 +687,8 @@ class ToFApp(tk.Tk):
                 messagebox.showwarning("Port manquant", "Sélectionnez un port COM/tty.")
                 return
             self._running = True
+            self._conf_history.clear()
+            self._history_ai.clear()
             self._parser  = FrameParser(self._mode_var.get())
             self._thread  = threading.Thread(target=self._uart_thread, daemon=True)
             self._thread.start()
