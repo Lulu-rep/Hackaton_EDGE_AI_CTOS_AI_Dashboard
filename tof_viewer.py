@@ -1,13 +1,3 @@
-"""
-ToF Sensor Viewer - ST VL53L8CX / VL53L5CX Matrix 8x8
-Application de visualisation UART pour capteur Time-of-Flight ST
-avec détection IA embarquée (Edge AI conformité objet)
-
-Protocole UART attendu (JSON ou trame binaire configurable) :
-  JSON mode  : {"matrix": [d0..d63], "ai_result": 0|1, "confidence": 0.95}
-  Binary mode: [HEADER(2)] [64 x uint16_t distance mm] [AI_RESULT(1)] [CONFIDENCE(1)] [CHECKSUM(1)]
-"""
-
 import tkinter as tk
 from tkinter import ttk, messagebox, font as tkfont
 import serial
@@ -15,7 +5,6 @@ import serial.tools.list_ports
 import threading
 import queue
 import json
-import struct
 import time
 import re
 from datetime import datetime
@@ -27,7 +16,6 @@ from collections import deque
 MATRIX_SIZE   = 8
 N_PIXELS      = MATRIX_SIZE * MATRIX_SIZE
 CELL_PX       = 52          # taille d'une cellule en pixels
-HEADER_BYTES  = b'\xAA\x55'
 DIST_MIN_MM   = 100
 DIST_MAX_MM   = 400
 
@@ -69,49 +57,26 @@ def luminance(hex_color: str) -> float:
 #  Parseur de trames
 # ─────────────────────────────────────────────
 class FrameParser:
-    """Parse les trames JSON ou binaires depuis le port UART."""
 
-    def __init__(self, mode="json"):
-        self.mode   = mode
+    def __init__(self):
         self._buf   = b""
-        # binaire : HEADER(2) + 64*uint16(128) + AI(1) + CONF(1) + CSUM(1) = 133 bytes
-        self.BIN_LEN = 2 + N_PIXELS * 2 + 1 + 1 + 1
 
     def feed(self, data: bytes):
-        """Injecte des octets et retourne une liste de trames parsées."""
         frames = []
         self._buf += data
 
-        if self.mode == "json":
-            while b'\n' in self._buf:
-                line, self._buf = self._buf.split(b'\n', 1)
-                try:
-                    text = line.decode("utf-8", errors="ignore").strip()
-                    # La carte ST envoie les valeurs séparées par des espaces
-                    # au lieu de virgules : [0.0 122.0 ...] -> [0.0, 122.0, ...]
-                    text = re.sub(r'(\d)\s+(\d)', r'\1, \2', text)
-                    obj = json.loads(text)
-                    frame = self._parse_json(obj)
-                    if frame:
-                        frames.append(frame)
-                except Exception:
-                    pass
-
-        else:  # binary
-            while len(self._buf) >= self.BIN_LEN:
-                idx = self._buf.find(HEADER_BYTES)
-                if idx == -1:
-                    self._buf = b""
-                    break
-                if idx > 0:
-                    self._buf = self._buf[idx:]
-                if len(self._buf) < self.BIN_LEN:
-                    break
-                raw   = self._buf[:self.BIN_LEN]
-                self._buf = self._buf[self.BIN_LEN:]
-                frame = self._parse_binary(raw)
+        while b'\n' in self._buf:
+            line, self._buf = self._buf.split(b'\n', 1)
+            try:
+                text = line.decode("utf-8", errors="ignore").strip()
+                text = re.sub(r'(\d)\s+(\d)', r'\1, \2', text)
+                obj = json.loads(text)
+                frame = self._parse_json(obj)
                 if frame:
                     frames.append(frame)
+            except Exception:
+                pass
+
         return frames
 
     def _parse_json(self, obj: dict):
@@ -128,27 +93,7 @@ class FrameParser:
             "confidence": float(obj.get("confidence", 0.0)),
             "timestamp":  obj.get("ts", time.time()),
         }
-
-    def _parse_binary(self, raw: bytes):
-        # vérifier en-tête
-        if raw[:2] != HEADER_BYTES:
-            return None
-        # vérifier checksum (XOR de tous les octets sauf les 2 derniers)
-        csum = 0
-        for b in raw[2:-1]:
-            csum ^= b
-        if csum != raw[-1]:
-            return None
-        distances = list(struct.unpack_from(f"<{N_PIXELS}H", raw, 2))
-        ai_byte   = raw[2 + N_PIXELS*2]
-        conf_byte = raw[2 + N_PIXELS*2 + 1]
-        return {
-            "matrix":     distances,
-            "ai_result":  bool(ai_byte),
-            "confidence": conf_byte / 255.0,
-            "timestamp":  time.time(),
-        }
-
+    
 # ─────────────────────────────────────────────
 #  Application principale
 # ─────────────────────────────────────────────
@@ -178,7 +123,7 @@ class ToFApp(tk.Tk):
         self._running     = False
         self._graph_w     = 0
         self._queue       = queue.Queue()
-        self._parser      = FrameParser("json")
+        self._parser      = FrameParser()
         self._fps_buf     = deque(maxlen=30)
         self._last_frame  = time.time()
         self._frame_count = 0
@@ -253,14 +198,6 @@ class ToFApp(tk.Tk):
                                 values=["9600","19200","38400","57600","115200","230400","460800","921600"])
         baud_cb.grid(row=1, column=1, sticky="ew", padx=(6,0), pady=2)
 
-        # Mode trame
-        tk.Label(uart_f, text="Mode", bg=self.PANEL, fg=self.TEXT_DIM,
-                 font=("Courier New", 9)).grid(row=2, column=0, sticky="w", pady=2)
-        self._mode_var = tk.StringVar(value="json")
-        mode_cb = ttk.Combobox(uart_f, textvariable=self._mode_var, width=14, state="readonly",
-                                values=["json", "binary"])
-        mode_cb.grid(row=2, column=1, sticky="ew", padx=(6,0), pady=2)
-        self._mode_var.trace_add("write", lambda *_: self._update_parser_mode())
 
         # Bouton Connect
         btn_f = tk.Frame(side, bg=self.PANEL, padx=14, pady=8)
@@ -687,7 +624,7 @@ class ToFApp(tk.Tk):
             self._running = True
             self._conf_history.clear()
             self._history_ai.clear()
-            self._parser  = FrameParser(self._mode_var.get())
+            self._parser  = FrameParser()
             self._thread  = threading.Thread(target=self._uart_thread, daemon=True)
             self._thread.start()
             self._btn_connect.configure(text="DÉCONNECTER", bg=self.RED)
@@ -702,8 +639,7 @@ class ToFApp(tk.Tk):
             self._port_var.set(ports[0])
         self._log_msg(f"{len(ports)} port(s) détecté(s) : {', '.join(ports) or 'aucun'}")
 
-    def _update_parser_mode(self):
-        self._parser = FrameParser(self._mode_var.get())
+        self._parser = FrameParser()
 
 
 # ─────────────────────────────────────────────
