@@ -530,7 +530,7 @@ class ToFApp(tk.Tk):
         pts = []
         for ts, conf in data:
             x = 1 + int((ts - t0) / span * (w - 3))
-            y = h - 2 - int(conf * (h - 4))
+            y = h - 2 - int((conf / 100.0) * (h - 4))
             pts.append((x, y))
 
         # Segments colorés ancien->récent (bleu->orange)
@@ -606,8 +606,8 @@ class ToFApp(tk.Tk):
         self._led_canvas.configure(bg=self._darken(color))
 
         # barre confiance
-        pct = int(self._confidence * 100)
-        w   = int(self._confidence * 160)
+        pct = int(self._confidence)
+        w   = int(self._confidence / 100 * 160)
         conf_color = self.GREEN if pct >= 70 else (self.ORANGE if pct >= 40 else self.RED)
         self._conf_bar_bg.coords(self._conf_bar_rect, 0, 0, w, 16)
         self._conf_bar_bg.itemconfig(self._conf_bar_rect, fill=conf_color)
@@ -677,8 +677,6 @@ class ToFApp(tk.Tk):
     def _toggle_connect(self):
         if self._running:
             self._running = False
-            if self._serial:
-                self._serial.close()
             self._log_msg("Déconnecté", "warn")
             self._on_disconnect()
         else:
