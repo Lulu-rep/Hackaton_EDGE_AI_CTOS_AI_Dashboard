@@ -395,18 +395,17 @@ class ToFApp(tk.Tk):
                                   highlightbackground=self.BORDER)
         self._canvas.pack()
 
-        # Légende couleur
+        # Légende couleur dynamique
         leg_f = tk.Frame(mat_outer, bg=self.BG)
         leg_f.pack(fill="x", pady=(4, 0))
-        tk.Label(leg_f, text="0 mm", bg=self.BG, fg=self.TEXT_DIM,
-                 font=("Courier New", 8)).pack(side="left")
-        leg_cv = tk.Canvas(leg_f, width=200, height=10, bg=self.BG, highlightthickness=0)
-        leg_cv.pack(side="left", padx=6)
-        for i in range(200):
-            c = dist_to_color(int(i / 200 * DIST_MAX_MM))
-            leg_cv.create_rectangle(i, 0, i+1, 10, fill=c, outline="")
-        tk.Label(leg_f, text=f"{DIST_MAX_MM} mm", bg=self.BG, fg=self.TEXT_DIM,
-                 font=("Courier New", 8)).pack(side="left")
+        self._leg_min_lbl = tk.Label(leg_f, text="— mm", bg=self.BG, fg=self.TEXT_DIM,
+                                      font=("Courier New", 8))
+        self._leg_min_lbl.pack(side="left")
+        self._leg_cv = tk.Canvas(leg_f, width=200, height=10, bg=self.BG, highlightthickness=0)
+        self._leg_cv.pack(side="left", padx=6)
+        self._leg_max_lbl = tk.Label(leg_f, text="— mm", bg=self.BG, fg=self.TEXT_DIM,
+                                      font=("Courier New", 8))
+        self._leg_max_lbl.pack(side="left")
 
 
         # ── Graphe historique ──────────────────
@@ -472,26 +471,38 @@ class ToFApp(tk.Tk):
         cs    = CELL_PX
         show  = self._show_values.get()
         grid  = self._show_grid.get()
-        dmin  = self._dist_min_var.get()
-        try:
-            dmax = int(self._dist_max_var.get()) or DIST_MAX_MM
-        except (ValueError, tk.TclError):
-            dmax = DIST_MAX_MM
+
+        # Échelle dynamique sur les pixels valides de la frame courante
+        valid = [d for d in self._matrix if d > 0]
+        dmin  = min(valid) if valid else 0
+        dmax  = max(valid) if valid else 1
         scale = dmax - dmin or 1
 
         # Supprimer ancienne grille
         self._canvas.delete("grid_line")
 
         for i, dist in enumerate(self._matrix):
-            r, c  = divmod(i, MATRIX_SIZE)
-            # normalisation personnalisée
-            norm  = max(0, min(dist - dmin, scale))
-            color = dist_to_color(int(norm / scale * DIST_MAX_MM))
+            r, c = divmod(i, MATRIX_SIZE)
+            if dist <= 0:
+                color = "#111827"
+            else:
+                # norm : 0.0 (plus proche) → 1.0 (plus loin)
+                # On passe max(1, ...) pour éviter le cas dist_mm=0 → noir
+                norm  = (dist - dmin) / scale
+                color = dist_to_color(max(1, int(norm * DIST_MAX_MM)))
             self._canvas.itemconfig(self._cell_ids[i], fill=color)
             lum   = luminance(color)
             fg    = "#000000" if lum > 0.55 else "#FFFFFF"
             txt   = str(dist) if (show and dist > 0) else ""
             self._canvas.itemconfig(self._value_ids[i], text=txt, fill=fg)
+
+        # Mise à jour légende
+        self._leg_min_lbl.configure(text=f"{dmin} mm")
+        self._leg_max_lbl.configure(text=f"{dmax} mm")
+        self._leg_cv.delete("all")
+        for i in range(200):
+            c = dist_to_color(max(1, int((i / 200) * DIST_MAX_MM)))
+            self._leg_cv.create_rectangle(i, 0, i + 1, 10, fill=c, outline="")
 
         if grid:
             total = CELL_PX * MATRIX_SIZE
