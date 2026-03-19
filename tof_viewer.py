@@ -167,7 +167,7 @@ class ToFApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("ToF Sensor Viewer — ST Edge AI")
+        self.title("Box Box 9000 Ultra Pro Max")
         self.configure(bg=self.BG)
         self.resizable(True, True)
         self.minsize(980, 700)
@@ -215,8 +215,10 @@ class ToFApp(tk.Tk):
         # Logo / titre
         title_f = tk.Frame(side, bg=self.PANEL, pady=18)
         title_f.grid(row=0, column=0, sticky="ew")
-        tk.Label(title_f, text="ToF Viewer", bg=self.PANEL,
-                 fg=self.WHITE, font=("Courier New", 18, "bold")).pack()
+        tk.Label(title_f, text="Box Box 9000", bg=self.PANEL,
+                 fg=self.WHITE, font=("Courier New", 14, "bold")).pack()
+        tk.Label(title_f, text="Ultra Pro Max", bg=self.PANEL,
+                 fg=self.WHITE, font=("Courier New", 14, "bold")).pack()
         tk.Label(title_f, text="ST Edge AI · 8×8 Matrix", bg=self.PANEL,
                  fg=self.TEXT_DIM, font=("Courier New", 9)).pack()
 
