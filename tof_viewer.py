@@ -83,8 +83,6 @@ class FrameParser:
         matrix = obj.get("matrix", [])
         if len(matrix) == 0:
             return None
-        # La carte ST peut envoyer plusieurs trames concaténées (multiple de 64)
-        # On prend uniquement les 64 premières valeurs
         if len(matrix) < N_PIXELS:
             return None
         return {
@@ -98,7 +96,6 @@ class FrameParser:
 #  Application principale
 # ─────────────────────────────────────────────
 class ToFApp(tk.Tk):
-    # ── Palette couleurs UI ──────────────────
     BG       = "#0D1117"
     PANEL    = "#161B22"
     BORDER   = "#21262D"
@@ -112,7 +109,7 @@ class ToFApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title("Box Box 9000 Ultra Pro Max")
+        self.title("CHALANT 9000 Ultra Pro Max")
         self.configure(bg=self.BG)
         self.resizable(True, True)
         self.minsize(980, 700)
@@ -127,8 +124,8 @@ class ToFApp(tk.Tk):
         self._fps_buf     = deque(maxlen=30)
         self._last_frame  = time.time()
         self._frame_count = 0
-        self._history_ai  = deque(maxlen=50)   # historique résultat IA
-        self._conf_history= deque(maxlen=20)   # historique (timestamp, confidence)
+        self._history_ai  = deque(maxlen=50)
+        self._conf_history= deque(maxlen=20)   
 
         # Données courantes
         self._matrix      = [0] * N_PIXELS
@@ -161,7 +158,7 @@ class ToFApp(tk.Tk):
         # Logo / titre
         title_f = tk.Frame(side, bg=self.PANEL, pady=18)
         title_f.grid(row=0, column=0, sticky="ew")
-        tk.Label(title_f, text="Box Box 9000", bg=self.PANEL,
+        tk.Label(title_f, text="CHALANT 9000", bg=self.PANEL,
                  fg=self.WHITE, font=("Courier New", 14, "bold")).pack()
         tk.Label(title_f, text="Ultra Pro Max", bg=self.PANEL,
                  fg=self.WHITE, font=("Courier New", 14, "bold")).pack()
